@@ -1,0 +1,62 @@
+name: YouTube posts to Telegram
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      test_message:
+        description: '확인 성공 후 텔레그램 테스트 알림 전송'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-posts-notifier
+  cancel-in-progress: false
+
+jobs:
+  check:
+    # Public repository + standard runner: no runner-minute charges.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check new posts
+        id: check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATE_DB: state/state.sqlite3
+        run: python run_once.py
+      - name: Save notification history
+        if: ${{ always() && !cancelled() && steps.check.outcome != 'skipped' }}
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          if [ ! -f state/state.sqlite3 ]; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- state/state.sqlite3
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Update notification history'
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:$DEFAULT_BRANCH"
+      - name: Send setup test
+        if: ${{ success() && github.event_name == 'workflow_dispatch' && inputs.test_message }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py --test-message
