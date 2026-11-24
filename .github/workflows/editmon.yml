@@ -28,7 +28,7 @@ jobs:
         run: |
           if [ -z "$BOT_TOKEN" ]; then
             echo "Waiting for EDITMON_BOT_TOKEN." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
           fi
           if ! [[ "$CHAT_ID" =~ ^[1-9][0-9]*$ ]]; then
             echo "Set EDITMON_CHAT_ID to a personal Telegram chat ID." >&2
