@@ -38,8 +38,8 @@ export async function collect(previous, load = loadPage) {
 }
 
 function send(env, message) {
-  const result = spawnSync("python3", ["-c", "import sys; from bot import send; send(sys.stdin.read())"], {
-    input: message, encoding: "utf8", stdio: ["pipe", "ignore", "ignore"],
+  const result = spawnSync("python3", ["-c", "import sys, urllib.error\nfrom bot import send\ntry:\n    send(sys.stdin.read())\nexcept urllib.error.HTTPError as exc:\n    print(\"Telegram HTTP\", exc.code, file=sys.stderr)\n    raise SystemExit(1)\nexcept Exception as exc:\n    print(\"Telegram connection:\", type(exc).__name__, type(getattr(exc, \"reason\", None)).__name__, file=sys.stderr)\n    raise SystemExit(1)"], {
+    input: message, encoding: "utf8", stdio: ["pipe", "ignore", "inherit"],
     env: {...process.env, TELEGRAM_BOT_TOKEN: env.BOT_TOKEN.trim(), TELEGRAM_CHAT_ID: env.CHAT_ID.trim()}
   });
   if (result.status !== 0) throw new Error("텔레그램 전송 실패");
