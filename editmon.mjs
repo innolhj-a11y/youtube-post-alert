@@ -97,8 +97,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (stored === null || stored?.startupPending) {
     const baseline = previous ?? jobs.at(-1)[0];
     if (stored === null) checkpoint({startupPending: baseline});
-    await telegram(process.env.BOT_TOKEN.trim(), "getMe");
-    console.log("Telegram authenticated the bot token.");
     await send(process.env, "편집몬 알림이 시작됐습니다. 한국 시간 06:00~24:00에 새 공고를 확인합니다.");
     checkpoint(baseline);
     if (stored === null) process.exit(0);
