@@ -37,36 +37,24 @@ export async function collect(previous, load = loadPage) {
   return [...fresh].sort(([a], [b]) => a - b);
 }
 
+function telegram(token, method, fields = []) {
+  const result = spawnSync("curl", ["--http1.1", "--silent", "--connect-timeout", "8",
+    "--max-time", "20",
+    "--write-out", "%{stderr}TCP=%{time_connect} TLS=%{time_appconnect} HTTP=%{http_code}\n",
+    ...fields.flatMap(field => ["--data-urlencode", field]),
+    "https://api.telegram.org/bot" + token + "/" + method], {encoding: "utf8"});
+  if (result.status !== 0) {
+    const timing = (result.stderr || "").match(/^TCP=[\d.]+ TLS=[\d.]+ HTTP=\d{3}$/m);
+    throw new Error(method + " failed (curl " + result.status + (timing ? ", " + timing[0] : "") + ")");
+  }
+  const response = JSON.parse(result.stdout);
+  if (!response.ok) throw new Error(method + " returned Telegram API error " + response.error_code);
+}
+
 function send(env, message) {
   const token = env.BOT_TOKEN.trim();
   if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new Error("텔레그램 토큰 형식 오류");
-  const payload = JSON.stringify({chat_id: env.CHAT_ID.trim(), text: message});
-  const routes = [
-    {name: "system DNS", options: []},
-    // Telegram's public DNS A record, verified during deployment.
-    {name: "Telegram IPv4", options: ["--resolve", "api.telegram.org:443:149.154.166.110"]}
-  ];
-  for (const route of routes) {
-    const result = spawnSync("curl", [...route.options, "--silent", "--connect-timeout", "10",
-      "--max-time", "20",
-      "--write-out", "%{stderr}TCP=%{time_connect} TLS=%{time_appconnect} HTTP=%{http_code}\n",
-      "--header", "Content-Type: application/json", "--data-binary", "@-",
-      "https://api.telegram.org/bot" + token + "/sendMessage"], {
-      input: payload, encoding: "utf8"
-    });
-    if (result.status === 0) {
-      const response = JSON.parse(result.stdout);
-      if (!response.ok) throw new Error("Telegram API error " + response.error_code);
-      return;
-    }
-    const timing = (result.stderr || "").match(/^TCP=([\d.]+) TLS=([\d.]+) HTTP=(\d{3})$/m);
-    console.error(route.name + " curl " + result.status + (timing ? " " + timing[0] : ""));
-    // Retry on the next route only when HTTPS never established and no HTTP response arrived.
-    if (![6, 7, 28].includes(result.status) || !timing || Number(timing[2]) !== 0 || timing[3] !== "000") {
-      throw new Error("Telegram delivery could not be verified");
-    }
-  }
-  throw new Error("Could not establish an HTTPS connection to Telegram");
+  telegram(token, "sendMessage", ["chat_id=" + env.CHAT_ID.trim(), "text=" + message]);
 }
 
 import {execFileSync, spawnSync} from "node:child_process";
@@ -101,6 +89,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (stored === null || stored?.startupPending) {
     const baseline = previous ?? jobs.at(-1)[0];
     if (stored === null) checkpoint({startupPending: baseline});
+    telegram(process.env.BOT_TOKEN.trim(), "getMe");
+    console.log("Telegram authenticated the bot token.");
     send(process.env, "편집몬 알림이 시작됐습니다. 한국 시간 06:00~24:00에 새 공고를 확인합니다.");
     checkpoint(baseline);
     if (stored === null) process.exit(0);
