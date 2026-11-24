@@ -23,9 +23,17 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
       - name: Check Editmon and notify
         env:
-          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BOT_TOKEN: ${{ secrets.EDITMON_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.EDITMON_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
         run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "Waiting for EDITMON_BOT_TOKEN." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if ! [[ "$CHAT_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Set EDITMON_CHAT_ID to a personal Telegram chat ID." >&2
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           node editmon.mjs
