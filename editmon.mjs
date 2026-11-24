@@ -38,11 +38,17 @@ export async function collect(previous, load = loadPage) {
 }
 
 function send(env, message) {
-  const result = spawnSync("python3", ["-c", "import sys, urllib.error\nfrom bot import send\ntry:\n    send(sys.stdin.read())\nexcept urllib.error.HTTPError as exc:\n    print(\"Telegram HTTP\", exc.code, file=sys.stderr)\n    raise SystemExit(1)\nexcept Exception as exc:\n    print(\"Telegram connection:\", type(exc).__name__, type(getattr(exc, \"reason\", None)).__name__, file=sys.stderr)\n    raise SystemExit(1)"], {
-    input: message, encoding: "utf8", stdio: ["pipe", "ignore", "inherit"],
-    env: {...process.env, TELEGRAM_BOT_TOKEN: env.BOT_TOKEN.trim(), TELEGRAM_CHAT_ID: env.CHAT_ID.trim()}
+  const token = env.BOT_TOKEN.trim();
+  if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new Error("텔레그램 토큰 형식 오류");
+  const result = spawnSync("curl", ["--ipv4", "--silent", "--connect-timeout", "10",
+    "--max-time", "30", "--retry", "2", "--retry-delay", "2",
+    "--header", "Content-Type: application/json", "--data-binary", "@-",
+    "https://api.telegram.org/bot" + token + "/sendMessage"], {
+    input: JSON.stringify({chat_id: env.CHAT_ID.trim(), text: message}), encoding: "utf8"
   });
-  if (result.status !== 0) throw new Error("텔레그램 전송 실패");
+  if (result.status !== 0) throw new Error("Telegram connection failed (curl " + result.status + ")");
+  const response = JSON.parse(result.stdout);
+  if (!response.ok) throw new Error("Telegram API error " + response.error_code);
 }
 
 import {execFileSync, spawnSync} from "node:child_process";
