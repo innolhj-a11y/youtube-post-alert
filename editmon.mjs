@@ -40,20 +40,33 @@ export async function collect(previous, load = loadPage) {
 function send(env, message) {
   const token = env.BOT_TOKEN.trim();
   if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new Error("텔레그램 토큰 형식 오류");
-  const result = spawnSync("curl", ["--ipv4", "--silent", "--connect-timeout", "10",
-    "--max-time", "30", "--retry", "2", "--retry-delay", "2",
-    "--write-out", "%{stderr}dns=%{time_namelookup} tcp=%{time_connect} tls=%{time_appconnect} first=%{time_starttransfer} total=%{time_total} http=%{http_code}\\n",
-    "--header", "Content-Type: application/json", "--data-binary", "@-",
-    "https://api.telegram.org/bot" + token + "/sendMessage"], {
-    input: JSON.stringify({chat_id: env.CHAT_ID.trim(), text: message}), encoding: "utf8"
-  });
-  if (result.status !== 0) {
-    const timing = (result.stderr || "").split("\n").filter(line => /^dns=[\d.]+ tcp=[\d.]+ tls=[\d.]+ first=[\d.]+ total=[\d.]+ http=\d{3}$/.test(line));
-    console.error(timing.join("\n"));
-    throw new Error("Telegram connection failed (curl " + result.status + ")");
+  const payload = JSON.stringify({chat_id: env.CHAT_ID.trim(), text: message});
+  const routes = [
+    {name: "system DNS", options: []},
+    // Telegram's public DNS A record, verified during deployment.
+    {name: "Telegram IPv4", options: ["--resolve", "api.telegram.org:443:149.154.166.110"]}
+  ];
+  for (const route of routes) {
+    const result = spawnSync("curl", [...route.options, "--silent", "--connect-timeout", "10",
+      "--max-time", "20",
+      "--write-out", "%{stderr}TCP=%{time_connect} TLS=%{time_appconnect} HTTP=%{http_code}\n",
+      "--header", "Content-Type: application/json", "--data-binary", "@-",
+      "https://api.telegram.org/bot" + token + "/sendMessage"], {
+      input: payload, encoding: "utf8"
+    });
+    if (result.status === 0) {
+      const response = JSON.parse(result.stdout);
+      if (!response.ok) throw new Error("Telegram API error " + response.error_code);
+      return;
+    }
+    const timing = (result.stderr || "").match(/^TCP=([\d.]+) TLS=([\d.]+) HTTP=(\d{3})$/m);
+    console.error(route.name + " curl " + result.status + (timing ? " " + timing[0] : ""));
+    // Retry on the next route only when HTTPS never established and no HTTP response arrived.
+    if (![6, 7, 28].includes(result.status) || !timing || Number(timing[2]) !== 0 || timing[3] !== "000") {
+      throw new Error("Telegram delivery could not be verified");
+    }
   }
-  const response = JSON.parse(result.stdout);
-  if (!response.ok) throw new Error("Telegram API error " + response.error_code);
+  throw new Error("Could not establish an HTTPS connection to Telegram");
 }
 
 import {execFileSync, spawnSync} from "node:child_process";
