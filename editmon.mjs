@@ -76,7 +76,16 @@ export async function run(previous, jobs, notify, save) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (!process.env.BOT_TOKEN || !process.env.CHAT_ID) throw new Error("BOT_TOKEN / CHAT_ID 설정을 확인하세요.");
-  const previous = JSON.parse(readFileSync("state/editmon-last-id.json", "utf8"));
+  const stored = JSON.parse(readFileSync("state/editmon-last-id.json", "utf8"));
+  const previous = stored?.startupPending ?? stored;
   if (previous !== null && !(Number.isSafeInteger(previous) && previous > 0)) throw new Error("공고 번호 저장값 오류");
-  await run(previous, await collect(previous), msg => send(process.env, msg), checkpoint);
+  const jobs = await collect(previous);
+  if (stored === null || stored?.startupPending) {
+    const baseline = previous ?? jobs.at(-1)[0];
+    if (stored === null) checkpoint({startupPending: baseline});
+    send(process.env, "편집몬 알림이 시작됐습니다. 한국 시간 06:00~24:00에 새 공고를 확인합니다.");
+    checkpoint(baseline);
+    if (stored === null) process.exit(0);
+  }
+  await run(previous, jobs, msg => send(process.env, msg), checkpoint);
 }
