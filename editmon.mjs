@@ -37,19 +37,15 @@ export async function collect(previous, load = loadPage) {
   return [...fresh].sort(([a], [b]) => a - b);
 }
 
-async function send(env, message) {
-  let result;
-  try {
-    result = await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({chat_id:env.CHAT_ID, text:message, link_preview_options:{is_disabled:true}}),
-      signal: AbortSignal.timeout(15000)
-    });
-  } catch { throw new Error("텔레그램 연결 실패"); }
-  if (!result.ok || !(await result.json()).ok) throw new Error("텔레그램 전송 실패 HTTP " + result.status);
+function send(env, message) {
+  const result = spawnSync("python3", ["-c", "import sys; from bot import send; send(sys.stdin.read())"], {
+    input: message, encoding: "utf8", stdio: ["pipe", "ignore", "ignore"],
+    env: {...process.env, TELEGRAM_BOT_TOKEN: env.BOT_TOKEN.trim(), TELEGRAM_CHAT_ID: env.CHAT_ID.trim()}
+  });
+  if (result.status !== 0) throw new Error("텔레그램 전송 실패");
 }
 
-import {execFileSync} from "node:child_process";
+import {execFileSync, spawnSync} from "node:child_process";
 import {readFileSync, writeFileSync} from "node:fs";
 import {pathToFileURL} from "node:url";
 
