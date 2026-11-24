@@ -37,7 +37,7 @@ export async function collect(previous, load = loadPage) {
   return [...fresh].sort(([a], [b]) => a - b);
 }
 
-function telegram(token, method, fields = []) {
+async function telegram(token, method, fields = [], retry = true) {
   const result = spawnSync("curl", ["--http1.1", "--silent", "--connect-timeout", "8",
     "--max-time", "20",
     "--write-out", "%{stderr}TCP=%{time_connect} TLS=%{time_appconnect} HTTP=%{http_code}\n",
@@ -48,13 +48,21 @@ function telegram(token, method, fields = []) {
     throw new Error(method + " failed (curl " + result.status + (timing ? ", " + timing[0] : "") + ")");
   }
   const response = JSON.parse(result.stdout);
+  if (response.error_code === 429) {
+    const delay = Number(response.parameters?.retry_after) || 60;
+    console.log(method + " rate limited; retry_after_seconds=" + delay);
+    if (retry && delay > 0 && delay < 700) {
+      await new Promise(resolve => setTimeout(resolve, (delay + 1) * 1000));
+      return telegram(token, method, fields, false);
+    }
+  }
   if (!response.ok) throw new Error(method + " returned Telegram API error " + response.error_code);
 }
 
 function send(env, message) {
   const token = env.BOT_TOKEN.trim();
   if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new Error("텔레그램 토큰 형식 오류");
-  telegram(token, "sendMessage", ["chat_id=" + env.CHAT_ID.trim(), "text=" + message]);
+  return telegram(token, "sendMessage", ["chat_id=" + env.CHAT_ID.trim(), "text=" + message]);
 }
 
 import {execFileSync, spawnSync} from "node:child_process";
@@ -89,9 +97,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (stored === null || stored?.startupPending) {
     const baseline = previous ?? jobs.at(-1)[0];
     if (stored === null) checkpoint({startupPending: baseline});
-    telegram(process.env.BOT_TOKEN.trim(), "getMe");
+    await telegram(process.env.BOT_TOKEN.trim(), "getMe");
     console.log("Telegram authenticated the bot token.");
-    send(process.env, "편집몬 알림이 시작됐습니다. 한국 시간 06:00~24:00에 새 공고를 확인합니다.");
+    await send(process.env, "편집몬 알림이 시작됐습니다. 한국 시간 06:00~24:00에 새 공고를 확인합니다.");
     checkpoint(baseline);
     if (stored === null) process.exit(0);
   }
