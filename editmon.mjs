@@ -42,11 +42,16 @@ function send(env, message) {
   if (!/^\d+:[A-Za-z0-9_-]+$/.test(token)) throw new Error("텔레그램 토큰 형식 오류");
   const result = spawnSync("curl", ["--ipv4", "--silent", "--connect-timeout", "10",
     "--max-time", "30", "--retry", "2", "--retry-delay", "2",
+    "--write-out", "%{stderr}dns=%{time_namelookup} tcp=%{time_connect} tls=%{time_appconnect} first=%{time_starttransfer} total=%{time_total} http=%{http_code}\\n",
     "--header", "Content-Type: application/json", "--data-binary", "@-",
     "https://api.telegram.org/bot" + token + "/sendMessage"], {
     input: JSON.stringify({chat_id: env.CHAT_ID.trim(), text: message}), encoding: "utf8"
   });
-  if (result.status !== 0) throw new Error("Telegram connection failed (curl " + result.status + ")");
+  if (result.status !== 0) {
+    const timing = (result.stderr || "").split("\n").filter(line => /^dns=[\d.]+ tcp=[\d.]+ tls=[\d.]+ first=[\d.]+ total=[\d.]+ http=\d{3}$/.test(line));
+    console.error(timing.join("\n"));
+    throw new Error("Telegram connection failed (curl " + result.status + ")");
+  }
   const response = JSON.parse(result.stdout);
   if (!response.ok) throw new Error("Telegram API error " + response.error_code);
 }
